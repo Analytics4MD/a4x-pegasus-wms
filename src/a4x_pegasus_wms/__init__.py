@@ -905,6 +905,9 @@ $merged_command_string
         self,
         pegasus_home: str | None = None,
         replan: bool = False,
+        wait: bool = True,
+        analyze: bool = True,
+        analyze_json_mode: bool = True,
         **kwargs,
     ) -> None:
         """Run the Pegasus workflow."""
@@ -926,6 +929,10 @@ $merged_command_string
                 )
             pegasus_client = from_env(pegasus_home)
             pegasus_client.run(str(self.pegasus_submit_dir))
+            if wait:
+                pegasus_client.wait()
+            if analyze:
+                pegasus_client.analyze(json_mode=analyze_json_mode)
 
     def create_plugin_settings_for_a4x_config(self) -> dict:
         """Get the plugin settings dict to be added to the A4X-Orchestration YAML config."""  # noqa: E501
