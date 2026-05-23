@@ -297,7 +297,7 @@ class PegasusWMS(A4XPlugin):
         file_mapping = {}
         # Loop over A4X File objects found in the 'inputs' property
         # of every A4X Task in the workflow
-        for wf_file in a4wf.all_task_inputs:
+        for wf_file in a4wf.input_files:
             self._log.debug(f"Adding replica {wf_file.path_attr} to Pegasus workflow")
             # Create the Pegasus File
             pegasus_file = File(str(wf_file.path_attr))
