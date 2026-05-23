@@ -457,10 +457,9 @@ class PegasusWMS(A4XPlugin):
         # Create the Pegasus Directory object based on the A4X Directory object
         # and add a file server based on the A4X Directory path
         directory_kwargs = {}
-        if directory.site.scheduler != A4XScheduler.CONDOR:
-            directory_kwargs["shared_file_system"] = (
-                shared_file_system and use_pegasus_shared_filesystem
-            )
+        directory_kwargs["shared_file_system"] = (
+            shared_file_system and use_pegasus_shared_filesystem
+        )
         pegasus_directory = Directory(
             dir_type, directory.path, **directory_kwargs
         ).add_file_servers(FileServer("file://" + str(directory.path), Operation.ALL))
