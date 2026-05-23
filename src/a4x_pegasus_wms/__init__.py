@@ -134,11 +134,17 @@ class PegasusWMS(A4XPlugin):
         self._props["pegasus.mode"] = "development"
         if "JAVA_HOME" in os.environ:
             self._props["env.JAVA_HOME"] = os.environ["JAVA_HOME"]
+        self.workflow_name = None
         self.workflow_file = None
         self.properties_file = None
         self.script_output_dir = None
         self.pegasus_submit_dir = None
         self.output_sites = None
+        if (
+            "workflow_name" in self.plugin_settings
+            and self.plugin_settings["workflow_name"] is not None
+        ):
+            self.workflow_name = self.plugin_settings["workflow_name"]
         if (
             "workflow_file" in self.plugin_settings
             and self.plugin_settings["workflow_file"] is not None
@@ -279,6 +285,7 @@ class PegasusWMS(A4XPlugin):
         a4wf = self.a4x_wflow
         # Create the Pegasus Workflow
         wf = self._pegasus_workflow = Workflow(name=a4wf.name)
+        self.workflow_name = a4wf.name
 
         # Call self._transform_sites to create a Pegasus SiteCatalog
         self._log.debug("Adding sites to Pegasus workflow")
@@ -922,20 +929,26 @@ $merged_command_string
             )
             self.run(**kwargs)
         else:
-            if self.pegasus_submit_dir is None:
+            if self.pegasus_submit_dir is None or self.wflow_name is None:
                 raise RuntimeError(
                     "Cannot execute an unplanned Pegasus workflow. Run 'PegasusWMS.configure' first."  # noqa: E501
                 )
             pegasus_client = from_env(pegasus_home)
             pegasus_client.run(str(self.pegasus_submit_dir))
             if wait:
-                pegasus_client.wait()
+                pegasus_client.wait(self.wflow_name, str(self.pegasus_submit_dir))
             if analyze:
-                pegasus_client.analyze(json_mode=analyze_json_mode)
+                pegasus_client.analyze(
+                    str(self.pegasus_submit_dir),
+                    json_mode=analyze_json_mode,
+                )
 
     def create_plugin_settings_for_a4x_config(self) -> dict:
         """Get the plugin settings dict to be added to the A4X-Orchestration YAML config."""  # noqa: E501
         return {
+            "workflow_name": self.workflow_name
+            if self.workflow_name is not None
+            else None,
             "workflow_file": str(self.workflow_file)
             if self.workflow_file is not None
             else None,
