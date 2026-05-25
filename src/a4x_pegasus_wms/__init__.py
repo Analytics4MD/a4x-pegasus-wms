@@ -949,14 +949,14 @@ $merged_command_string
             )
             self.run(**kwargs)
         else:
-            if self.pegasus_submit_dir is None or self.wflow_name is None:
+            if self.pegasus_submit_dir is None or self.workflow_name is None:
                 raise RuntimeError(
                     "Cannot execute an unplanned Pegasus workflow. Run 'PegasusWMS.configure' first."  # noqa: E501
                 )
             pegasus_client = from_env(pegasus_home)
             pegasus_client.run(str(self.pegasus_submit_dir))
             if wait:
-                pegasus_client.wait(self.wflow_name, str(self.pegasus_submit_dir))
+                pegasus_client.wait(self.workflow_name, str(self.pegasus_submit_dir))
             if analyze:
                 pegasus_client.analyze(
                     str(self.pegasus_submit_dir),
