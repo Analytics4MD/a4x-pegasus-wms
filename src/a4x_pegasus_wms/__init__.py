@@ -47,6 +47,13 @@ if TYPE_CHECKING:
 
 T = TypeVar("T")
 
+_SCHEDULER_EXCLUSIVE_FLAG = {
+    A4XScheduler.LSF: "-x",
+    A4XScheduler.PBS: "-l place=excl",
+    A4XScheduler.SLURM: "--exclusive",
+    A4XScheduler.FLUX: "--exclusive",
+}
+
 
 def check(func: Callable[..., T]) -> Callable[..., T]:
     """Check _summary_.
@@ -728,7 +735,7 @@ class PegasusWMS(A4XPlugin):
 
         # Update the Pegasus Job with scheduling information from the A4X
         # Tasks's SchedulableWork parent class
-        self._transform_schedulable(job, task)
+        self._transform_schedulable(job, task, task_site.scheduler)
 
         return job, script_out_fname
 
@@ -863,10 +870,16 @@ $merged_command_string
             task_name=task_name, merged_command_string=merged_command_string
         )
 
-    def _transform_schedulable(self, job: Job, schedulable: A4XSchedulable) -> None:
+    def _transform_schedulable(
+        self,
+        job: Job,
+        schedulable: A4XSchedulable,
+        scheduler: A4XScheduler,
+    ) -> None:
         """Populate a Pegasus Job with information from an A4X SchedulableWork."""
         # Get the A4X Resources object
         resources = schedulable.get_resources()
+        extra_rjms_settings = schedulable.extra_settings.copy()
         # If a duration has been specified, set the Job's 'runtime' profile entry
         if schedulable.duration is not None:
             job.add_pegasus_profile(runtime=convert_time(schedulable.duration))
@@ -906,6 +919,13 @@ $merged_command_string
             # of nodes in the Job's profile
             else:
                 job.add_pegasus_profile(nodes=per_task_resources.nodes)
+            # If the nodes should be allocated exclusively, add the scheduler
+            # specific flag
+            if resources.exclusive and scheduler in _SCHEDULER_EXCLUSIVE_FLAG:
+                extra_rjms_settings.append(_SCHEDULER_EXCLUSIVE_FLAG[scheduler])
+        # Add any extra RJMS flags to the job
+        if len(extra_rjms_settings) != 0:
+            job.add_pegasus_profile(glite_arguments=" ".join(extra_rjms_settings))
 
     def execute(
         self,
