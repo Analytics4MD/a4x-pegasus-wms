@@ -958,7 +958,7 @@ $merged_command_string
             if wait:
                 pegasus_client.wait(self.workflow_name, str(self.pegasus_submit_dir))
             if analyze:
-                pegasus_client.analyze(
+                pegasus_client.analyzer(
                     str(self.pegasus_submit_dir),
                     json_mode=analyze_json_mode,
                 )
