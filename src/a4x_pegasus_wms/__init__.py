@@ -928,7 +928,7 @@ $merged_command_string
         if len(extra_rjms_settings) != 0:
             job.add_pegasus_profile(glite_arguments=" ".join(extra_rjms_settings))
 
-    def execute(
+    def execute(  # noqa: C901
         self,
         pegasus_home: str | None = None,
         replan: bool = False,
@@ -948,6 +948,20 @@ $merged_command_string
                 **kwargs,
             )
             self.run(**kwargs)
+            if wait:
+                self.wait()
+            if analyze:
+                for attempt in range(5):
+                    try:
+                        self.analyze(json_mode=False)
+                    except PegasusClientError as e:
+                        if attempt == 4:
+                            print("Workflow analysis failed after 5 attempts.")
+                            raise e
+                        print(
+                            f"Database not ready yet (attempt {attempt + 1}/5). Retrying...",  # noqa: E501
+                        )
+                        time.sleep(5)
         else:
             if self.pegasus_submit_dir is None or self.workflow_name is None:
                 raise RuntimeError(
