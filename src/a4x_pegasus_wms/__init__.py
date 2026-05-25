@@ -8,6 +8,7 @@ from __future__ import annotations
 import inspect
 import logging
 import os
+import time
 from functools import wraps
 from pathlib import Path
 from string import Template
@@ -35,7 +36,7 @@ from Pegasus.api import (
     TransformationCatalog,
     Workflow,
 )
-from Pegasus.client._client import from_env
+from Pegasus.client._client import PegasusClientError, from_env
 
 if TYPE_CHECKING:
     from typing import TextIO
@@ -933,7 +934,6 @@ $merged_command_string
         replan: bool = False,
         wait: bool = True,
         analyze: bool = True,
-        analyze_json_mode: bool = True,
         **kwargs,
     ) -> None:
         """Run the Pegasus workflow."""
@@ -958,10 +958,20 @@ $merged_command_string
             if wait:
                 pegasus_client.wait(self.workflow_name, str(self.pegasus_submit_dir))
             if analyze:
-                pegasus_client.analyzer(
-                    str(self.pegasus_submit_dir),
-                    json_mode=analyze_json_mode,
-                )
+                for attempt in range(5):
+                    try:
+                        pegasus_client.analyzer(
+                            str(self.pegasus_submit_dir),
+                            json_mode=False,
+                        )
+                    except PegasusClientError as e:
+                        if attempt == 4:
+                            print("Workflow analysis failed after 5 attempts.")
+                            raise e
+                        print(
+                            f"Database not ready yet (attempt {attempt + 1}/5). Retrying...",  # noqa: E501
+                        )
+                        time.sleep(5)
 
     def create_plugin_settings_for_a4x_config(self) -> dict:
         """Get the plugin settings dict to be added to the A4X-Orchestration YAML config."""  # noqa: E501
