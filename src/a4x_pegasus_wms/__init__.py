@@ -146,7 +146,7 @@ class PegasusWMS(A4XPlugin):
         if (
             self._a4x_workflow_annotation_key in self.a4x_wflow.annotations
             and "properties"
-            in self.a4x_wflow.annotations[self._a4x_workflow_anonntations_key]
+            in self.a4x_wflow.annotations[self._a4x_workflow_anonntation_key]
         ):
             annotations_prop_dict = self.a4x_wflow.annotations[
                 self._a4x_workflow_annotation_key
