@@ -146,7 +146,7 @@ class PegasusWMS(A4XPlugin):
         if (
             self._a4x_workflow_annotation_key in self.a4x_wflow.annotations
             and "properties"
-            in self.a4x_wflow.annotations[self._a4x_workflow_anonntation_key]
+            in self.a4x_wflow.annotations[self._a4x_workflow_annotation_key]
         ):
             annotations_prop_dict = self.a4x_wflow.annotations[
                 self._a4x_workflow_annotation_key
@@ -155,7 +155,7 @@ class PegasusWMS(A4XPlugin):
                 raise TypeError(
                     "The 'pegasus.properties' key must have a dictionary value"
                 )
-            for key, val in annotations_prop_dict:
+            for key, val in annotations_prop_dict.items():
                 self._props[key] = val
         self.workflow_name = None
         self.workflow_file = None
