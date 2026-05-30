@@ -126,7 +126,7 @@ class PegasusWMS(A4XPlugin):
     _extended_summary_
     """
 
-    def __init__(self, workflow: A4XWorkflow) -> None:
+    def __init__(self, workflow: A4XWorkflow) -> None:  # noqa: C901
         """__init__ _summary_.
 
         _extended_summary_
@@ -142,6 +142,21 @@ class PegasusWMS(A4XPlugin):
         self._props["pegasus.mode"] = "development"
         if "JAVA_HOME" in os.environ:
             self._props["env.JAVA_HOME"] = os.environ["JAVA_HOME"]
+        # Get extra properties from Workflow annotations
+        if (
+            self._a4x_workflow_annotation_key in self.a4x_wflow.annotations
+            and "properties"
+            in self.a4x_wflow.annotations[self._a4x_workflow_anonntations_key]
+        ):
+            annotations_prop_dict = self.a4x_wflow.annotations[
+                self._a4x_workflow_annotation_key
+            ]["properties"]
+            if not isinstance(annotations_prop_dict, dict):
+                raise TypeError(
+                    "The 'pegasus.properties' key must have a dictionary value"
+                )
+            for key, val in annotations_prop_dict:
+                self._props[key] = val
         self.workflow_name = None
         self.workflow_file = None
         self.properties_file = None
