@@ -8,6 +8,7 @@ from __future__ import annotations
 import inspect
 import logging
 import os
+import stat
 import time
 from functools import wraps
 from pathlib import Path
@@ -142,6 +143,8 @@ class PegasusWMS(A4XPlugin):
         self._props["pegasus.mode"] = "development"
         if "JAVA_HOME" in os.environ:
             self._props["env.JAVA_HOME"] = os.environ["JAVA_HOME"]
+        # TODO patch
+        self._props["pegasus.transfer.worker.package"] = "False"
         # Get extra properties from Workflow annotations
         if (
             self._a4x_workflow_annotation_key in self.a4x_wflow.annotations
@@ -236,6 +239,8 @@ class PegasusWMS(A4XPlugin):
         self.write(workflow_file=workflow_file, properties_file=properties_file)
         if self.output_sites is not None:
             plan_kwargs["output_sites"] = list(self.output_sites)
+        # TODO patch
+        plan_kwargs["conf"] = str(plan_kwargs["properties_file"])
         self._pegasus_workflow.plan(**plan_kwargs)  # type: ignore[union-attr]
 
     @validate_keyword_args(Workflow.run)
@@ -381,11 +386,12 @@ class PegasusWMS(A4XPlugin):
             # Note that we set the site to "local" because we assume the
             # scripts are mainly available at the submission site (i.e., the
             # site where the HTCondor daemons for workflow submission are running)
+            # TODO Patch
             tf = Transformation(
                 task.task_name,
-                site="local",
+                site="a4x_workflow_site",
                 pfn=job_script_path.resolve(),
-                is_stageable=True,
+                is_stageable=False,
             )
             tfs.add(tf)
             # Add the Pegasus Job to the Workflow
@@ -449,6 +455,10 @@ class PegasusWMS(A4XPlugin):
                 raise ValueError("Pegasus requires a shared scratch directory")
             if set_auxillary_local_if_only_one_site and len(a4wf.sites) == 1:
                 site.add_pegasus_profile(auxillary_local=True)
+            # TODO patch
+            site.add_env(
+                PEGASUS_HOME="/g/g90/lumsden1/ws/a4x_paper_2025_2026/paper_experiments/software_env/spack_env_caliper_release/.spack-env/view"
+            )
             # Add the Pegasus Site to the SiteCatalog
             site_catalog.add_sites(site)
         if len(self.output_sites) == 0:
@@ -691,6 +701,7 @@ class PegasusWMS(A4XPlugin):
         # Write the task's Bash script to file
         with script_out_fname.open("w") as f:
             f.write(cmd_script)
+        script_out_fname.chmod(script_out_fname.stat().st_mode | stat.S_IXUSR)
 
         # Build arguments for the script from 'task.inputs' and 'task.outputs'
         job_args = []
