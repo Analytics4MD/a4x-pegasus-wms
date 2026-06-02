@@ -240,11 +240,13 @@ class PegasusWMS(A4XPlugin):
         if self.output_sites is not None:
             plan_kwargs["output_sites"] = list(self.output_sites)
         # TODO patch
-        if "properties_file" in plan_kwargs:
+        if properties_file is not None and isinstance(
+            properties_file, (str, os.PathLike)
+        ):
             plan_kwargs["conf"] = (
-                str(plan_kwargs["properties_file"])
-                if isinstance(plan_kwargs["properties_file"], os.PathLike)
-                else plan_kwargs["properties_file"]
+                str(properties_file)
+                if isinstance(properties_file, os.PathLike)
+                else properties_file
             )
         self._pegasus_workflow.plan(**plan_kwargs)  # type: ignore[union-attr]
 
