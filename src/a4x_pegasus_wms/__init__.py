@@ -456,9 +456,16 @@ class PegasusWMS(A4XPlugin):
             if set_auxillary_local_if_only_one_site and len(a4wf.sites) == 1:
                 site.add_pegasus_profile(auxillary_local=True)
             # TODO patch
-            site.add_env(
-                PEGASUS_HOME="/g/g90/lumsden1/ws/a4x_paper_2025_2026/paper_experiments/software_env/spack_env_caliper_release/.spack-env/view"
-            )
+            pegasus_home = "/g/g90/lumsden1/ws/a4x_paper_2025_2026/paper_experiments/software_env/pegasus"  # noqa: E501
+            if (
+                self._a4x_workflow_annotation_key in a4wf.annotations
+                and "pegasus_home"
+                in a4wf.annotations[self._a4x_workflow_annotation_key]
+            ):
+                pegasus_home = a4wf.annotations[self._a4x_workflow_annotation_key][
+                    "pegasus_home"
+                ]
+            site.add_env(PEGASUS_HOME=pegasus_home)
             # Add the Pegasus Site to the SiteCatalog
             site_catalog.add_sites(site)
         if len(self.output_sites) == 0:
