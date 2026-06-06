@@ -47,6 +47,8 @@ source = { editable = "." }
 dependencies = [
     { name = "a4x-orchestration" },
     { name = "pegasus-wms-api" },
+    { name = "pydantic", version = "2.10.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
+    { name = "pydantic", version = "2.12.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
 ]
 
 [package.dev-dependencies]
@@ -96,6 +98,7 @@ typing = [
 requires-dist = [
     { name = "a4x-orchestration", specifier = "~=0.1.0b5" },
     { name = "pegasus-wms-api" },
+    { name = "pydantic", specifier = "~=2.0" },
 ]
 
 [package.metadata.requires-dev]

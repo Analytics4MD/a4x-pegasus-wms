@@ -13,7 +13,7 @@ import time
 from functools import wraps
 from pathlib import Path
 from string import Template
-from typing import TYPE_CHECKING, Callable, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, TypeVar
 
 from a4x.orchestration import File as A4XFile
 from a4x.orchestration import PersistencyType as A4XPersistency
@@ -38,6 +38,7 @@ from Pegasus.api import (
     Workflow,
 )
 from Pegasus.client._client import PegasusClientError, from_env
+from pydantic import BaseModel, ConfigDict, field_validator
 
 if TYPE_CHECKING:
     from typing import TextIO
@@ -46,6 +47,8 @@ if TYPE_CHECKING:
     from a4x.orchestration import SchedulableWork as A4XSchedulable
     from a4x.orchestration import Task
     from a4x.orchestration import Workflow as A4XWorkflow
+    from a4x.orchestration.annotations import AnnotationType
+    from Pegasus.api import ProfileMixin
 
 T = TypeVar("T")
 
@@ -121,6 +124,105 @@ def validate_keyword_args(
     return decorator
 
 
+class _ConfigurableAnnotations(BaseModel):
+    env_profiles: dict[str, Any] = {}
+    globus_profiles: dict[str, Any] = {}
+    condor_profiles: dict[str, Any] = {}
+    dagman_profiles: dict[str, Any] = {}
+    pegasus_profiles: dict[str, Any] = {}
+
+    model_config = ConfigDict(extra="allow")
+
+
+class _WorkflowAnnotations(_ConfigurableAnnotations):
+    properties: dict[str, Any] = {}
+    env_profiles: dict[str, Any] = {}
+
+
+class _SiteAnnotations(_ConfigurableAnnotations):
+    arch: Arch | None = None
+    os_type: OS | None = None
+    os_release: str | None = None
+    os_version: str | None = None
+
+    @field_validator("arch", mode="before")
+    @classmethod
+    def _validate_arch(cls, value: Any) -> Arch | None:  # noqa: ANN401
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise TypeError(
+                "The 'arch' annotation must be a string corresponding to a value of the Pegasus Arch enum",  # noqa: E501
+            )
+        return Arch(value)
+
+    @field_validator("os_type", mode="before")
+    @classmethod
+    def _validate_os_type(cls, value: Any) -> OS | None:  # noqa: ANN401
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise TypeError(
+                "The 'os_type' annotation must be a string corresponding to a value of the Pegasus OS enum",  # noqa: E501
+            )
+        return OS(value)
+
+
+class _TaskAnnotations(_ConfigurableAnnotations):
+    transformation_site: str | None = None
+    transformation_stagable: bool = True
+
+
+class _FileServerAnnotations(BaseModel):
+    prefix: str
+    operation: Operation
+
+    @field_validator("operation", mode="before")
+    @classmethod
+    def _validate_operation(cls, value: Any) -> Operation:  # noqa: ANN401
+        if value is None or not isinstance(value, str):
+            raise TypeError("The 'operation' annotation must be a string")
+        if value not in ("all", "put", "get"):
+            raise ValueError(
+                "The 'operation' annotation must be one of 'all', 'put', or 'get'"
+            )
+        return Operation(value)
+
+
+class _DirectoryAnnotations(BaseModel):
+    extra_file_servers: list[_FileServerAnnotations] = []
+
+
+_A4X_WORKFLOW_ANNOTATION_KEY = "pegasus"
+
+
+def _get_annotations(
+    a4x_obj: AnnotationType,
+    annotation_type: type[_ConfigurableAnnotations] | type[_DirectoryAnnotations],
+) -> _ConfigurableAnnotations | _DirectoryAnnotations | None:
+    if _A4X_WORKFLOW_ANNOTATION_KEY not in a4x_obj.annotations:
+        return None
+    return annotation_type(**a4x_obj.annotations[_A4X_WORKFLOW_ANNOTATION_KEY])
+
+
+def _add_profiles_to_pegasus_obj(
+    a4x_obj: AnnotationType, pegasus_obj: ProfileMixin
+) -> None:
+    annotations = _get_annotations(a4x_obj, _ConfigurableAnnotations)
+    if annotations is None:
+        return
+    for key, val in annotations.env_profiles.items():
+        pegasus_obj.add_env(key, val)
+    if len(annotations.globus_profiles) > 0:
+        pegasus_obj.add_globus_profiles(**annotations.globus_profiles)
+    if len(annotations.condor_profiles) > 0:
+        pegasus_obj.add_condor_profiles(**annotations.condor_profiles)
+    if len(annotations.dagman_profiles) > 0:
+        pegasus_obj.add_dagman_profiles(**annotations.dagman_profiles)
+    if len(annotations.pegasus_profiles) > 0:
+        pegasus_obj.add_pegasus_profiles(**annotations.pegasus_profiles)
+
+
 class PegasusWMS(A4XPlugin):
     """_summary_.
 
@@ -143,22 +245,10 @@ class PegasusWMS(A4XPlugin):
         self._props["pegasus.mode"] = "development"
         if "JAVA_HOME" in os.environ:
             self._props["env.JAVA_HOME"] = os.environ["JAVA_HOME"]
-        # TODO patch
-        self._props["pegasus.transfer.worker.package"] = "False"
         # Get extra properties from Workflow annotations
-        if (
-            self._a4x_workflow_annotation_key in self.a4x_wflow.annotations
-            and "properties"
-            in self.a4x_wflow.annotations[self._a4x_workflow_annotation_key]
-        ):
-            annotations_prop_dict = self.a4x_wflow.annotations[
-                self._a4x_workflow_annotation_key
-            ]["properties"]
-            if not isinstance(annotations_prop_dict, dict):
-                raise TypeError(
-                    "The 'pegasus.properties' key must have a dictionary value"
-                )
-            for key, val in annotations_prop_dict.items():
+        _wflow_annotations = _get_annotations(self.a4x_wflow, _WorkflowAnnotations)
+        if _wflow_annotations is not None and len(_wflow_annotations.properties) > 0:
+            for key, val in _wflow_annotations.properties.items():
                 self._props[key] = val
         self.workflow_name = None
         self.workflow_file = None
@@ -239,7 +329,6 @@ class PegasusWMS(A4XPlugin):
         self.write(workflow_file=workflow_file, properties_file=properties_file)
         if self.output_sites is not None:
             plan_kwargs["output_sites"] = list(self.output_sites)
-        # TODO patch
         if properties_file is not None and isinstance(
             properties_file, (str, os.PathLike)
         ):
@@ -304,7 +393,7 @@ class PegasusWMS(A4XPlugin):
         """
         self._pegasus_workflow.statistics(**kwargs)  # type: ignore[union-attr]
 
-    def transform(
+    def transform(  # noqa: C901
         self,
         script_out_dir: os.PathLike | str | None = None,
         exist_ok: bool = True,
@@ -321,6 +410,7 @@ class PegasusWMS(A4XPlugin):
         # Create the Pegasus Workflow
         wf = self._pegasus_workflow = Workflow(name=a4wf.name)
         self.workflow_name = a4wf.name
+        _add_profiles_to_pegasus_obj(a4wf, self._pegasus_workflow)
 
         # Call self._transform_sites to create a Pegasus SiteCatalog
         self._log.debug("Adding sites to Pegasus workflow")
@@ -363,7 +453,7 @@ class PegasusWMS(A4XPlugin):
 
         # Loop over A4X File objects in the `outputs` property of every A4X Task
         # in the workflow
-        for wf_file in a4wf.all_task_outputs:
+        for wf_file in a4wf.output_files:
             self._log.debug(
                 f"Adding non-replica output file {wf_file.path_attr} to Pegasus workflow"  # noqa: E501
             )
@@ -393,12 +483,18 @@ class PegasusWMS(A4XPlugin):
             # Note that we set the site to "local" because we assume the
             # scripts are mainly available at the submission site (i.e., the
             # site where the HTCondor daemons for workflow submission are running)
-            # TODO Patch
+            task_transform_annotations = _get_annotations(task, _TaskAnnotations)
+            transform_site = "local"
+            transform_stagable = True
+            if task_transform_annotations is not None:
+                if task_transform_annotations.transformation_site is not None:
+                    transform_site = task_transform_annotations.transformation_site
+                transform_stagable = task_transform_annotations.transformation_stagable
             tf = Transformation(
                 task.task_name,
-                site="a4x_workflow_site",
+                site=transform_site,
                 pfn=job_script_path.resolve(),
-                is_stageable=False,
+                is_stageable=transform_stagable,
             )
             tfs.add(tf)
             # Add the Pegasus Job to the Workflow
@@ -434,22 +530,11 @@ class PegasusWMS(A4XPlugin):
         for a4x_site in a4wf.sites:
             # Get optional Pegasus Site constructor info
             site_info = self._transform_optional_site_info(a4x_site)
-            data_configuration = None
-            auxillary_local = None
-            if "data_configuration" in site_info:
-                data_configuration = site_info["data_configuration"]
-                del site_info["data_configuration"]
-            if "auxillary_local" in site_info:
-                auxillary_local = site_info["auxillary_local"]
-                del site_info["auxillary_local"]
             # Create the Pegasus Site object
             site = Site(a4x_site.name, **site_info)
+            _add_profiles_to_pegasus_obj(a4x_site, site)
             # Populate profiles for the Pegasus Site using the A4X Site
-            self.output_sites.add(
-                self._transform_grid_info(
-                    a4x_site, site, data_configuration, auxillary_local
-                )
-            )
+            self.output_sites.add(self._transform_grid_info(a4x_site, site))
             has_shared_scratch = False
             # Add all directories associated with the A4X Site
             for directory in a4x_site.values():
@@ -462,17 +547,6 @@ class PegasusWMS(A4XPlugin):
                 raise ValueError("Pegasus requires a shared scratch directory")
             if set_auxillary_local_if_only_one_site and len(a4wf.sites) == 1:
                 site.add_pegasus_profile(auxillary_local=True)
-            # TODO patch
-            pegasus_home = "/g/g90/lumsden1/ws/a4x_paper_2025_2026/paper_experiments/software_env/pegasus"  # noqa: E501
-            if (
-                self._a4x_workflow_annotation_key in a4wf.annotations
-                and "pegasus_home"
-                in a4wf.annotations[self._a4x_workflow_annotation_key]
-            ):
-                pegasus_home = a4wf.annotations[self._a4x_workflow_annotation_key][
-                    "pegasus_home"
-                ]
-            site.add_env(PEGASUS_HOME=pegasus_home)
             # Add the Pegasus Site to the SiteCatalog
             site_catalog.add_sites(site)
         if len(self.output_sites) == 0:
@@ -519,20 +593,15 @@ class PegasusWMS(A4XPlugin):
         ).add_file_servers(FileServer("file://" + str(directory.path), Operation.ALL))
         # If the directory's annotations include a "file_server_prefix" key under
         # "pegasus", we will add an extra file server using that prefix
-        if (
-            self._a4x_workflow_annotation_key in directory.annotations
-            and "file_server_prefix"
-            in directory.annotations[self._a4x_workflow_annotation_key]
-        ):
-            pegasus_directory.add_file_servers(
-                FileServer(
-                    directory.annotations[self._a4x_workflow_annotation_key][
-                        "file_server_prefix"
-                    ]
-                    + str(directory.path),
-                    Operation.ALL,
+        directory_annotations = _get_annotations(directory, _DirectoryAnnotations)
+        if directory_annotations is not None:
+            for file_server_annotation in directory_annotations.extra_file_servers:
+                pegasus_directory.add_file_servers(
+                    FileServer(
+                        file_server_annotation.prefix + str(directory.path),
+                        file_server_annotation.operation,
+                    )
                 )
-            )
         # Add the Pegasus Directory to the Pegasus Site
         site.add_directories(pegasus_directory)
         return dir_type
@@ -541,20 +610,13 @@ class PegasusWMS(A4XPlugin):
         self,
         a4x_site: A4XSite,
         pegasus_site: Site,
-        data_configuration: str | None,
-        auxillary_local: bool | None,
     ) -> str:
         """Update the Pegasus Site with scheduler-related info from the A4X Site."""
-        if auxillary_local is not None:
-            pegasus_site.add_pegasus_profile(auxillary_local=auxillary_local)
         # If the scheduler is Flux, set the Pegasus profile to 'glite' and
         # set the Condor profile to 'batch flux'
         if a4x_site.scheduler == A4XScheduler.FLUX:
             pegasus_site.add_pegasus_profile(
                 style="glite",
-                data_configuration="sharedfs"
-                if data_configuration is None
-                else data_configuration,
                 cores=1,
             )
             pegasus_site.add_condor_profile(grid_resource="batch flux")
@@ -564,9 +626,6 @@ class PegasusWMS(A4XPlugin):
         if a4x_site.scheduler == A4XScheduler.SLURM:
             pegasus_site.add_pegasus_profile(
                 style="glite",
-                data_configuration="sharedfs"
-                if data_configuration is None
-                else data_configuration,
                 cores=1,
             )
             pegasus_site.add_condor_profile(grid_resource="batch slurm")
@@ -576,9 +635,6 @@ class PegasusWMS(A4XPlugin):
         if a4x_site.scheduler == A4XScheduler.SGE:
             pegasus_site.add_pegasus_profile(
                 style="glite",
-                data_configuration="sharedfs"
-                if data_configuration is None
-                else data_configuration,
                 cores=1,
             )
             pegasus_site.add_condor_profile(grid_resource="batch sge")
@@ -588,9 +644,6 @@ class PegasusWMS(A4XPlugin):
         if a4x_site.scheduler == A4XScheduler.PBS:
             pegasus_site.add_pegasus_profile(
                 style="glite",
-                data_configuration="sharedfs"
-                if data_configuration is None
-                else data_configuration,
                 cores=1,
             )
             pegasus_site.add_condor_profile(grid_resource="batch pbs")
@@ -600,9 +653,6 @@ class PegasusWMS(A4XPlugin):
         if a4x_site.scheduler == A4XScheduler.LSF:
             pegasus_site.add_pegasus_profile(
                 style="glite",
-                data_configuration="sharedfs"
-                if data_configuration is None
-                else data_configuration,
                 cores=1,
             )
             pegasus_site.add_condor_profile(grid_resource="batch lsf")
@@ -612,9 +662,6 @@ class PegasusWMS(A4XPlugin):
         if a4x_site.scheduler == A4XScheduler.CONDOR:
             pegasus_site.add_pegasus_profile(
                 style="condor",
-                data_configuration="condorio"
-                if data_configuration is None
-                else data_configuration,
             )
             pegasus_site.add_condor_profile(universe="vanilla")
             return "local"
@@ -631,48 +678,24 @@ class PegasusWMS(A4XPlugin):
         site_info = {}
 
         # If the plugin-specific key is not in the A4X Site's annotations, skip
-        if self._a4x_workflow_annotation_key in a4x_site.annotations:
+        annotations = _get_annotations(a4x_site, _SiteAnnotations)
+        if annotations is not None:
             # If 'arch' is in the annotations for this plugin, create a Pegasus Arch
             # object from the value in the annotations
-            if "arch" in a4x_site.annotations[self._a4x_workflow_annotation_key]:
-                site_info["arch"] = Arch(
-                    a4x_site.annotations[self._a4x_workflow_annotation_key]["arch"]
-                )
+            if annotations.arch is not None:
+                site_info["arch"] = annotations.arch
             # If 'os_type' is in the annotations for this plugin, create a Pegasus OS
             # object from the value in the annotations
-            if "os_type" in a4x_site.annotations[self._a4x_workflow_annotation_key]:
-                site_info["os_type"] = OS(
-                    a4x_site.annotations[self._a4x_workflow_annotation_key]["os_type"]
-                )
+            if annotations.os_type is not None:
+                site_info["os_type"] = annotations.os_type
             # If 'os_release' is in the annotations for this plugin,
             # copy the value as-is
-            if "os_release" in a4x_site.annotations[self._a4x_workflow_annotation_key]:
-                site_info["os_release"] = a4x_site.annotations[
-                    self._a4x_workflow_annotation_key
-                ]["os_release"]
+            if annotations.os_release is not None:
+                site_info["os_release"] = annotations.os_release
             # If 'os_version' is in the annotations for this plugin,
             # copy the value as-is
-            if "os_version" in a4x_site.annotations[self._a4x_workflow_annotation_key]:
-                site_info["os_version"] = a4x_site.annotations[
-                    self._a4x_workflow_annotation_key
-                ]["os_version"]
-            if (
-                "data_configuration"
-                in a4x_site.annotations[self._a4x_workflow_annotation_key]
-            ):
-                site_info["data_configuration"] = a4x_site.annotations[
-                    self._a4x_workflow_annotation_key
-                ]["data_configuration"]
-            if (
-                "auxillary_local"
-                in a4x_site.annotations[self._a4x_workflow_annotation_key]
-            ):
-                site_info["auxillary_local"] = a4x_site.annotations[
-                    self._a4x_workflow_annotation_key
-                ]["auxillary_local"]
-                assert isinstance(site_info["auxillary_local"], bool), (
-                    "The 'auxillary_local' annotation must be a boolean"
-                )
+            if annotations.os_version is not None:
+                site_info["os_version"] = annotations.os_version
 
         return site_info
 
@@ -685,6 +708,7 @@ class PegasusWMS(A4XPlugin):
     ) -> tuple:
         # Create the Pegasus Job
         job = Job(task.task_name)
+        _add_profiles_to_pegasus_obj(task, job)
 
         # If the A4X Task has a site, grab it. Also, set the execution site for the Job
         # to the site name in 'task.site'. Otherwise, create a default site named

@@ -37,7 +37,11 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "Topic :: Scientific/Engineering",
 ]
-dependencies = ["pegasus-wms.api", "a4x-orchestration~=0.1.0b5"]
+dependencies = [
+    "pegasus-wms.api",
+    "a4x-orchestration~=0.1.0b5",
+    "pydantic~=2.0",
+]
 
 [project.urls]
 
