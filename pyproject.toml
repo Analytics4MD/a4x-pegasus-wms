@@ -39,7 +39,7 @@ classifiers = [
 ]
 dependencies = [
     "pegasus-wms.api",
-    "a4x-orchestration~=0.1.0b5",
+    "a4x-orchestration~=1.0.0rc1",
     "pydantic~=2.0",
 ]
 
