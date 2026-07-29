@@ -63,6 +63,23 @@ def build_lulesh_workflow_example(
         "os_version": 8,
     }
 
+    if sched in (
+        Scheduler.FLUX,
+        Scheduler.LSF,
+        Scheduler.PBS,
+        Scheduler.SGE,
+        Scheduler.SLURM,
+    ):
+        site.annotations["pegasus"]["pegasus_profiles"] = {}
+        site.annotations["pegasus"]["pegasus_profiles"]["data_configuration"] = (
+            "sharedfs"
+        )
+    elif sched == Scheduler.CONDOR:
+        site.annotations["pegasus"]["pegasus_profiles"] = {}
+        site.annotations["pegasus"]["pegasus_profiles"]["data_configuration"] = (
+            "condorio"
+        )
+
     wflow.add_site(site)
 
     make_lulesh_task = Task("make_lulesh")

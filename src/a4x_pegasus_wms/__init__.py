@@ -167,6 +167,16 @@ class _SiteAnnotations(_ConfigurableAnnotations):
             )
         return OS(value)
 
+    @field_validator("os_version", mode="before")
+    @classmethod
+    def _validate_os_version(cls, value: Any) -> str | None:  # noqa: ANN401
+        if value is None:
+            return None
+        str_value = value
+        if not isinstance(value, str):
+            str_value = str(value)
+        return str_value
+
 
 class _TaskAnnotations(_ConfigurableAnnotations):
     transformation_site: str | None = None

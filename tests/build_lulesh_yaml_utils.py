@@ -14,7 +14,6 @@ if TYPE_CHECKING:
 
 
 def _get_pegasus_dir_type(
-    sched: Scheduler,
     storage_type: StorageType,
     persistency: PersistencyType,
 ) -> tuple[bool, str]:
@@ -31,54 +30,78 @@ def _get_pegasus_dir_type(
             dir_type = "sharedStorage"
         elif persistency == PersistencyType.SCRATCH:
             dir_type = "sharedScratch"
-    if sched == Scheduler.CONDOR:
-        shared_file_system = False
     return shared_file_system, dir_type
 
 
-def _get_grid_info(sched: Scheduler) -> tuple[dict[str, Any], dict[str, Any]]:
+def _get_grid_info(
+    sched: Scheduler,
+) -> tuple[dict[str, Any], dict[str, Any], str | None]:
     # TODO consider adding auxillary.local
     if sched == Scheduler.FLUX:
-        return {
-            "style": "glite",
-            "data.configuration": "sharedfs",
-            "cores": 1,
-            "auxillary.local": "True",
-        }, {"grid_resource": "batch flux"}
+        return (
+            {
+                "style": "glite",
+                "data.configuration": "sharedfs",
+                "cores": 1,
+                "auxillary.local": "True",
+            },
+            {"grid_resource": "batch flux"},
+            "--exclusive",
+        )
     if sched == Scheduler.SLURM:
-        return {
-            "style": "glite",
-            "data.configuration": "sharedfs",
-            "cores": 1,
-            "auxillary.local": "True",
-        }, {"grid_resource": "batch slurm"}
+        return (
+            {
+                "style": "glite",
+                "data.configuration": "sharedfs",
+                "cores": 1,
+                "auxillary.local": "True",
+            },
+            {"grid_resource": "batch slurm"},
+            "--exclusive",
+        )
     if sched == Scheduler.SGE:
-        return {
-            "style": "glite",
-            "data.configuration": "sharedfs",
-            "cores": 1,
-            "auxillary.local": "True",
-        }, {"grid_resource": "batch sge"}
+        return (
+            {
+                "style": "glite",
+                "data.configuration": "sharedfs",
+                "cores": 1,
+                "auxillary.local": "True",
+            },
+            {"grid_resource": "batch sge"},
+            None,
+        )
     if sched == Scheduler.PBS:
-        return {
-            "style": "glite",
-            "data.configuration": "sharedfs",
-            "cores": 1,
-            "auxillary.local": "True",
-        }, {"grid_resource": "batch pbs"}
+        return (
+            {
+                "style": "glite",
+                "data.configuration": "sharedfs",
+                "cores": 1,
+                "auxillary.local": "True",
+            },
+            {"grid_resource": "batch pbs"},
+            "-l place=excl",
+        )
     if sched == Scheduler.LSF:
-        return {
-            "style": "glite",
-            "data.configuration": "sharedfs",
-            "cores": 1,
-            "auxillary.local": "True",
-        }, {"grid_resource": "batch lsf"}
+        return (
+            {
+                "style": "glite",
+                "data.configuration": "sharedfs",
+                "cores": 1,
+                "auxillary.local": "True",
+            },
+            {"grid_resource": "batch lsf"},
+            "-x",
+        )
     if sched == Scheduler.CONDOR:
-        return {
-            "style": "condor",
-            "data.configuration": "condorio",
-            "auxillary.local": "True",
-        }, {"universe": "vanilla"}
+        return (
+            {
+                "style": "condor",
+                "data.configuration": "condorio",
+                "auxillary.local": "True",
+            },
+            {"universe": "vanilla"},
+            None,
+        )
     raise ValueError(f"Unknown scheduler type: {str(sched)}")
 
 
@@ -88,8 +111,8 @@ def build_lulesh_yml(
     storage_type: StorageType,
     persistency: PersistencyType,
 ) -> dict:
-    dir_shared_fs, dir_type = _get_pegasus_dir_type(sched, storage_type, persistency)
-    pegasus_profile, condor_profile = _get_grid_info(sched)
+    dir_shared_fs, dir_type = _get_pegasus_dir_type(storage_type, persistency)
+    pegasus_profile, condor_profile, exclusive_flag = _get_grid_info(sched)
     base_yml: dict[str, Any] = {
         "name": f"lulesh_workflow_{str(sched)}_{str(storage_type)}_{str(persistency)}",
         "siteCatalog": {
@@ -99,7 +122,7 @@ def build_lulesh_yml(
                     "arch": "x86_64",
                     "os.type": "linux",
                     "os.release": "rhel",
-                    "os.version": 8,
+                    "os.version": "8",
                     "directories": [
                         {
                             "type": dir_type,
@@ -520,7 +543,7 @@ def build_lulesh_yml(
         ],
     }
     dir_shared_fs, dir_type = _get_pegasus_dir_type(
-        sched, StorageType.SHARED, PersistencyType.SCRATCH
+        StorageType.SHARED, PersistencyType.SCRATCH
     )
     shared_scratch_dir = {
         "type": dir_type,
@@ -538,6 +561,14 @@ def build_lulesh_yml(
             del base_yml["siteCatalog"]["sites"][0]["directories"][i][
                 "sharedFileSystem"
             ]
+    for i in range(len(base_yml["jobs"])):
+        if (
+            base_yml["jobs"][i]["name"].startswith("run_lulesh_")
+            and exclusive_flag is not None
+        ):
+            base_yml["jobs"][i]["profiles"]["pegasus"]["glite.arguments"] = (
+                exclusive_flag
+            )
     return base_yml
 
 
